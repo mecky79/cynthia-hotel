@@ -456,3 +456,4 @@ function openRecordPayment(debt, onDone) {
     if (onDone) onDone();
   });
 }
+
