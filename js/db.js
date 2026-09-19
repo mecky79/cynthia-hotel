@@ -257,3 +257,4 @@ export async function clearAllLocalData() {
   pendingCount = 0;
   notifySync();
 }
+
