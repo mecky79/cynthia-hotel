@@ -3,7 +3,7 @@
 // Every mutation is applied optimistically to memory, then persisted via db.js
 // (IndexedDB now, Supabase sync in the background if connected).
 
-import { loadAllFromDb, saveRecord } from "./db.js";
+import { loadAllFromDb, saveRecord, onSyncChange } from "./db.js";
 import { uid } from "./utils.js";
 import { toast } from "./components/toast.js";
 
@@ -22,6 +22,7 @@ const state = {
   // data
   debts: [],
   payments: [],
+  charges: [],
   customers: [],
   currentUser: null,
   hotel: loadHotelInfo(),
@@ -54,11 +55,31 @@ function persist(storeName, record) {
   });
 }
 
+// Whatever syncNow() just pulled down only lands in IndexedDB — pull it
+// into the in-memory state too, so the screen actually reflects it without
+// the person having to reload the page.
+let reloadingAfterSync = false;
+onSyncChange(async (status) => {
+  if (status.syncing || reloadingAfterSync) return;
+  reloadingAfterSync = true;
+  try {
+    const data = await loadAllFromDb();
+    state.debts = data.debts;
+    state.payments = data.payments;
+    state.charges = data.charges;
+    state.customers = data.customers;
+    notify();
+  } finally {
+    reloadingAfterSync = false;
+  }
+});
+
 // ---------- Init ----------
 export async function initState() {
   const data = await loadAllFromDb();
   state.debts = data.debts;
   state.payments = data.payments;
+  state.charges = data.charges;
   state.customers = data.customers;
 }
 
@@ -95,6 +116,22 @@ export function getPaymentsForDebt(debtId) {
   return state.payments.filter(p => p.debtId === debtId);
 }
 
+export function getChargesForDebt(debtId) {
+  return state.charges.filter(c => c.debtId === debtId);
+}
+
+/**
+ * The debt's running total: what it started at, plus every top-up
+ * ("Add Debt") recorded against it since. This is what "the debt" means
+ * everywhere in the UI — d.total on its own is just the starting amount.
+ */
+export function calculateDebtTotal(debtId) {
+  const debt = getDebt(debtId);
+  if (!debt) return 0;
+  const added = getChargesForDebt(debtId).reduce((sum, c) => sum + c.amount, 0);
+  return debt.total + added;
+}
+
 /**
  * A payment counts toward a debt only if it is not voided.
  */
@@ -107,9 +144,7 @@ export function calculateDebtPaid(debtId) {
 }
 
 export function calculateDebtRemaining(debtId) {
-  const debt = getDebt(debtId);
-  if (!debt) return 0;
-  const remaining = debt.total - calculateDebtPaid(debtId);
+  const remaining = calculateDebtTotal(debtId) - calculateDebtPaid(debtId);
   return remaining > 0 ? remaining : 0;
 }
 
@@ -118,7 +153,7 @@ export function calculateDebtStatus(debtId) {
   if (!debt) return "unknown";
   if (debt.archived) return "archived";
   const paid = calculateDebtPaid(debtId);
-  const remaining = debt.total - paid;
+  const remaining = calculateDebtTotal(debtId) - paid;
   if (remaining <= 0) return "paid";
   if (paid > 0) return "partial";
   return "owing";
@@ -152,7 +187,7 @@ export function calculateCustomerTotals(customerId) {
   let totalOwed = 0;
   let totalPaid = 0;
   for (const d of debts) {
-    totalOwed += d.total;
+    totalOwed += calculateDebtTotal(d.id);
     totalPaid += calculateDebtPaid(d.id);
   }
   const outstanding = totalOwed - totalPaid;
@@ -299,6 +334,23 @@ export function unarchiveDebt(debtId) {
   notify();
   persist("debts", d);
   return d;
+}
+
+export function addCharge({ debtId, amount, date, note }) {
+  const now = new Date().toISOString();
+  const charge = {
+    id: uid("chg"),
+    debtId,
+    amount: Number(amount) || 0,
+    date: date || now.slice(0, 10),
+    note: note || "",
+    recordedBy: state.currentUser ? state.currentUser.name : "Staff",
+    recordedAt: now
+  };
+  state.charges.push(charge);
+  notify();
+  persist("charges", charge);
+  return charge;
 }
 
 export function recordPayment({ debtId, amount, date, method, note }) {
