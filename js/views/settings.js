@@ -106,7 +106,9 @@ export function renderSettings() {
     appSection.querySelector("#clear-data-btn").addEventListener("click", async () => {
       const ok = await confirmModal({
         title: "Clear All Data",
-        message: "This permanently deletes every customer, debt and payment stored on this device. Meant for wiping test data before real use — not for everyday use.",
+        message: configured
+          ? "This permanently deletes every customer, debt and payment — on this device and in the connected database. Meant for wiping test data before real use — not for everyday use."
+          : "This permanently deletes every customer, debt and payment stored on this device. Meant for wiping test data before real use — not for everyday use.",
         confirmLabel: "Clear Everything",
         destructive: true
       });
