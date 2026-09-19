@@ -1,8 +1,8 @@
 import {
   getState, subscribe, navigate, getDebt, getCustomer,
-  getPaymentsForDebt, calculateDebtPaid, calculateDebtRemaining,
-  calculateDebtStatus, statusLabel, statusBadgeClass,
-  archiveDebt, unarchiveDebt, recordPayment, voidPayment
+  getPaymentsForDebt, getChargesForDebt, calculateDebtPaid, calculateDebtRemaining,
+  calculateDebtTotal, calculateDebtStatus, statusLabel, statusBadgeClass,
+  archiveDebt, unarchiveDebt, recordPayment, voidPayment, addCharge, updateDebt
 } from "../state.js";
 import { formatKsh, formatDate, formatDateTime, todayISO, parseAmountInput, escapeHtml } from "../utils.js";
 import { openModal, confirmModal } from "../components/modal.js";
@@ -30,11 +30,18 @@ export function renderDebtDetails(params) {
     }
 
     const customer = getCustomer(debt.customerId);
+    const total = calculateDebtTotal(debt.id);
     const paid = calculateDebtPaid(debt.id);
     const remaining = calculateDebtRemaining(debt.id);
     const status = calculateDebtStatus(debt.id);
-    const payments = getPaymentsForDebt(debt.id)
-      .sort((a, b) => new Date(b.recordedAt || b.date) - new Date(a.recordedAt || a.date));
+    const payments = getPaymentsForDebt(debt.id);
+    const charges = getChargesForDebt(debt.id);
+
+    // Combined activity feed — every top-up and every payment, newest first.
+    const activity = [
+      ...payments.map(p => ({ kind: "payment", ts: new Date(p.recordedAt || p.date).getTime(), data: p })),
+      ...charges.map(c => ({ kind: "charge", ts: new Date(c.recordedAt || c.date).getTime(), data: c }))
+    ].sort((a, b) => b.ts - a.ts);
 
     // Header
     const header = document.createElement("div");
@@ -67,8 +74,8 @@ export function renderDebtDetails(params) {
     panel.className = "balance-panel";
     panel.innerHTML = `
       <div>
-        <div class="bp-label">Original Debt</div>
-        <div class="bp-value">${formatKsh(debt.total)}</div>
+        <div class="bp-label">Total Debt</div>
+        <div class="bp-value">${formatKsh(total)}</div>
       </div>
       <div>
         <div class="bp-label">Total Paid</div>
@@ -88,7 +95,7 @@ export function renderDebtDetails(params) {
       <div class="section-header"><div class="section-title">Summary</div></div>
       <div class="section-body pad">
         <div class="kv-list">
-          <div class="kv"><span class="k">Created</span><span class="v">${formatDate(debt.date)}</span></div>
+          <div class="kv"><span class="k">Started</span><span class="v">${formatDate(debt.date)} · ${formatKsh(debt.total)}</span></div>
           <div class="kv"><span class="k">Status</span><span class="v">${statusLabel(status)}</span></div>
           ${debt.note ? `<div class="kv"><span class="k">Note</span><span class="v" style="max-width:60%; font-weight:500;">${escapeHtml(debt.note)}</span></div>` : ""}
         </div>
@@ -96,57 +103,74 @@ export function renderDebtDetails(params) {
     `;
     wrap.appendChild(summary);
 
-    // Payment history
-    const paySection = document.createElement("section");
-    paySection.className = "section";
-    paySection.innerHTML = `
+    // Activity — debt top-ups and payments, in one running history
+    const activitySection = document.createElement("section");
+    activitySection.className = "section";
+    activitySection.innerHTML = `
       <div class="section-header">
-        <div class="section-title">Payment History</div>
+        <div class="section-title">Activity</div>
         <div class="spacer"></div>
-        <span class="badge badge-method">${payments.length} record${payments.length === 1 ? "" : "s"}</span>
+        <span class="badge badge-method">${activity.length} record${activity.length === 1 ? "" : "s"}</span>
       </div>
     `;
-    const payBody = document.createElement("div");
-    payBody.className = "section-body";
-    if (!payments.length) {
-      payBody.innerHTML = `<div class="empty-state"><div class="empty-title">No payments yet</div><div class="empty-text">Record the first payment for this debt.</div></div>`;
+    const activityBody = document.createElement("div");
+    activityBody.className = "section-body";
+    if (!activity.length) {
+      activityBody.innerHTML = `<div class="empty-state"><div class="empty-title">No activity yet</div><div class="empty-text">Payments and any added debt will appear here.</div></div>`;
     } else {
-      payments.forEach(p => {
+      activity.forEach(entry => {
         const item = document.createElement("div");
-        item.className = "payment-item" + (p.voided ? " voided" : "");
-        item.innerHTML = `
-          <div class="pi-icon">${p.voided ? "×" : "✓"}</div>
-          <div class="pi-main">
-            <div class="pi-title">${formatKsh(p.amount)} · ${escapeHtml(p.method)}</div>
-            <div class="pi-sub">
-              ${formatDate(p.date)} · recorded by ${escapeHtml(p.recordedBy || "—")}
-              ${p.voided ? ' · <span class="badge badge-voided">Voided</span>' : ""}
+        if (entry.kind === "payment") {
+          const p = entry.data;
+          item.className = "payment-item" + (p.voided ? " voided" : "");
+          item.innerHTML = `
+            <div class="pi-icon">${p.voided ? "×" : "✓"}</div>
+            <div class="pi-main">
+              <div class="pi-title">${formatKsh(p.amount)} paid · ${escapeHtml(p.method)}</div>
+              <div class="pi-sub">
+                ${formatDate(p.date)} · recorded by ${escapeHtml(p.recordedBy || "—")}
+                ${p.voided ? ' · <span class="badge badge-voided">Voided</span>' : ""}
+              </div>
+              ${p.note ? `<div class="pi-sub">${escapeHtml(p.note)}</div>` : ""}
             </div>
-            ${p.note ? `<div class="pi-sub">${escapeHtml(p.note)}</div>` : ""}
-          </div>
-          ${!p.voided ? `<button class="btn btn-ghost btn-sm" data-void="${p.id}">Void</button>` : ""}
-        `;
-        payBody.appendChild(item);
+            ${!p.voided ? `<button class="btn btn-ghost btn-sm" data-void="${p.id}">Void</button>` : ""}
+          `;
+        } else {
+          const c = entry.data;
+          item.className = "payment-item";
+          item.innerHTML = `
+            <div class="pi-icon" style="background:var(--primary-soft); color:var(--primary);">+</div>
+            <div class="pi-main">
+              <div class="pi-title">${formatKsh(c.amount)} added to debt</div>
+              <div class="pi-sub">${formatDate(c.date)} · recorded by ${escapeHtml(c.recordedBy || "—")}</div>
+              ${c.note ? `<div class="pi-sub">${escapeHtml(c.note)}</div>` : ""}
+            </div>
+          `;
+        }
+        activityBody.appendChild(item);
       });
     }
-    paySection.appendChild(payBody);
-    wrap.appendChild(paySection);
+    activitySection.appendChild(activityBody);
+    wrap.appendChild(activitySection);
 
     // Actions
     const actions = document.createElement("div");
     actions.className = "sticky-actions";
     const canPay = status !== "paid" && status !== "archived";
+    const canAddDebt = status !== "archived";
     actions.innerHTML = `
       <button class="btn btn-secondary" id="archive-btn">${debt.archived ? "Unarchive" : "Archive"}</button>
       <button class="btn btn-secondary" id="edit-btn">Edit</button>
+      <button class="btn btn-secondary" id="add-debt-btn" ${canAddDebt ? "" : "disabled"}>Add Debt</button>
       <button class="btn btn-primary" id="pay-btn" ${canPay ? "" : "disabled"}>${status === "archived" ? "Archived" : (status === "paid" ? "Fully Paid" : "Record Payment")}</button>
     `;
     wrap.appendChild(actions);
 
-    header.querySelector("#back-btn").addEventListener("click", () => navigate("debts"));
-
     actions.querySelector("#pay-btn").addEventListener("click", () => {
       if (canPay) openRecordPayment(debt, () => update());
+    });
+    actions.querySelector("#add-debt-btn").addEventListener("click", () => {
+      if (canAddDebt) openAddCharge(debt, () => update());
     });
     actions.querySelector("#edit-btn").addEventListener("click", () => openEditDebt(debt, () => update()));
     actions.querySelector("#archive-btn").addEventListener("click", async () => {
@@ -181,20 +205,19 @@ export function renderDebtDetails(params) {
   return wrap;
 }
 
-// ---------- Edit debt modal ----------
-
-import { updateDebt } from "../state.js";
+// ---------- Edit debt modal (corrects the starting amount/date/note) ----------
 
 function openEditDebt(debt, onDone) {
   const body = document.createElement("div");
   body.className = "stack";
   body.innerHTML = `
     <div class="field">
-      <label>Total debt (KSh)</label>
+      <label>Starting amount (KSh)</label>
       <div class="amount-input-wrap">
         <span class="currency">KSh</span>
         <input class="input" id="edit-total" inputmode="numeric" value="${debt.total}" />
       </div>
+      <div class="hint">To add more debt on top of this later, use "Add Debt" instead of editing here.</div>
     </div>
     <div class="field">
       <label>Date</label>
@@ -225,22 +248,98 @@ function openEditDebt(debt, onDone) {
 
   footer.querySelector("[data-cancel]").addEventListener("click", () => m.close());
   footer.querySelector("[data-save]").addEventListener("click", () => {
-    const newTotal = parseAmountInput(totalInput.value);
+    const newBaseTotal = parseAmountInput(totalInput.value);
     const newDate = body.querySelector("#edit-date").value;
     const newNote = body.querySelector("#edit-note").value.trim();
 
-    if (!newTotal) { toast("Total must be greater than zero.", "error"); return; }
+    if (!newBaseTotal) { toast("Starting amount must be greater than zero.", "error"); return; }
     if (!newDate) { toast("Please pick a date.", "error"); return; }
 
-    // Guard: cannot reduce total below paid amount
+    // Guard: the combined total (this + any charges already added) can't
+    // drop below what's already been paid.
     const paid = calculateDebtPaid(debt.id);
-    if (newTotal < paid) {
+    const chargesSum = calculateDebtTotal(debt.id) - debt.total;
+    if (newBaseTotal + chargesSum < paid) {
       toast(`Total cannot be less than amount already paid (${formatKsh(paid)}).`, "error");
       return;
     }
 
-    updateDebt(debt.id, { total: newTotal, date: newDate, note: newNote });
+    updateDebt(debt.id, { total: newBaseTotal, date: newDate, note: newNote });
     toast("Debt updated.", "success");
+    m.close();
+    if (onDone) onDone();
+  });
+}
+
+// ---------- Add Debt modal (tops up an existing debt, keeps a record) ----------
+
+function openAddCharge(debt, onDone) {
+  const customer = getCustomer(debt.customerId);
+  const currentTotal = calculateDebtTotal(debt.id);
+
+  const body = document.createElement("div");
+  body.className = "stack";
+  body.innerHTML = `
+    <div class="card card-pad" style="background:var(--surface-2);">
+      <div class="kv-list">
+        <div class="kv"><span class="k">Customer</span><span class="v">${escapeHtml(customer ? customer.name : "—")}</span></div>
+        <div class="kv"><span class="k">Current total</span><span class="v">${formatKsh(currentTotal)}</span></div>
+      </div>
+    </div>
+
+    <div class="field">
+      <label for="charge-amount">Amount to add (KSh)</label>
+      <div class="amount-input-wrap">
+        <span class="currency">KSh</span>
+        <input class="input" id="charge-amount" inputmode="numeric" placeholder="0" />
+      </div>
+      <div class="hint" id="charge-hint">Enter how much more is owed</div>
+      <div class="error" id="charge-err" style="display:none;"></div>
+    </div>
+
+    <div class="field">
+      <label for="charge-date">Date</label>
+      <input class="input" id="charge-date" type="date" value="${todayISO()}" />
+    </div>
+
+    <div class="field">
+      <label for="charge-note">Note (optional)</label>
+      <textarea class="textarea" id="charge-note" placeholder="What was added, reference…"></textarea>
+    </div>
+  `;
+
+  const footer = document.createElement("div");
+  footer.style.display = "flex";
+  footer.style.gap = "12px";
+  footer.style.width = "100%";
+  footer.innerHTML = `
+    <button class="btn btn-secondary" data-cancel style="flex:1;">Cancel</button>
+    <button class="btn btn-primary" data-save style="flex:1;">Add Debt</button>
+  `;
+
+  const m = openModal({ title: "Add Debt", body, footer });
+
+  const amtInput = body.querySelector("#charge-amount");
+  const hint = body.querySelector("#charge-hint");
+  const errEl = body.querySelector("#charge-err");
+
+  amtInput.addEventListener("input", () => {
+    const v = parseAmountInput(amtInput.value);
+    amtInput.value = v ? v.toString() : "";
+    hint.textContent = v ? `New total will be ${formatKsh(currentTotal + v)}` : "Enter how much more is owed";
+  });
+
+  footer.querySelector("[data-cancel]").addEventListener("click", () => m.close());
+  footer.querySelector("[data-save]").addEventListener("click", () => {
+    const amount = parseAmountInput(amtInput.value);
+    const date = body.querySelector("#charge-date").value;
+    const note = body.querySelector("#charge-note").value.trim();
+
+    if (!amount) { errEl.textContent = "Enter an amount greater than zero."; errEl.style.display = "block"; return; }
+    if (!date) { errEl.textContent = "Pick a date."; errEl.style.display = "block"; return; }
+
+    addCharge({ debtId: debt.id, amount, date, note });
+    toast(`${formatKsh(amount)} added — new total ${formatKsh(currentTotal + amount)}.`, "success");
     m.close();
     if (onDone) onDone();
   });
@@ -250,6 +349,7 @@ function openEditDebt(debt, onDone) {
 
 function openRecordPayment(debt, onDone) {
   const customer = getCustomer(debt.customerId);
+  const total = calculateDebtTotal(debt.id);
   const paid = calculateDebtPaid(debt.id);
   const remaining = calculateDebtRemaining(debt.id);
 
@@ -259,7 +359,7 @@ function openRecordPayment(debt, onDone) {
     <div class="card card-pad" style="background:var(--surface-2);">
       <div class="kv-list">
         <div class="kv"><span class="k">Customer</span><span class="v">${escapeHtml(customer ? customer.name : "—")}</span></div>
-        <div class="kv"><span class="k">Original debt</span><span class="v">${formatKsh(debt.total)}</span></div>
+        <div class="kv"><span class="k">Total debt</span><span class="v">${formatKsh(total)}</span></div>
         <div class="kv"><span class="k">Already paid</span><span class="v text-success">${formatKsh(paid)}</span></div>
         <div class="kv"><span class="k">Remaining</span><span class="v text-danger">${formatKsh(remaining)}</span></div>
       </div>
