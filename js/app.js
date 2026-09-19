@@ -1,6 +1,6 @@
 import { initState, getState, subscribe, navigate, setCurrentUserFromSession, setLocalOnlyUser } from "./state.js";
 import { startRouter, registerRoute } from "./router.js";
-import { initSupabase, isConfigured } from "./db.js";
+import { initSupabase, isConfigured, syncNow, startAutoSync } from "./db.js";
 import { getSession, onAuthChange } from "./auth.js";
 
 import { renderLogin } from "./views/login.js";
@@ -18,8 +18,8 @@ import { renderTopbar } from "./components/topbar.js";
 
 // === Connect this to your own Supabase project ===
 // Project Settings -> API in your Supabase dashboard gives you both values.
-const SUPABASE_URL = "https://cdfwbdneoqousipzcved.supabase.co";
-const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNkZndiZG5lb3FvdXNpcHpjdmVkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk3OTQxODIsImV4cCI6MjEwNTM3MDE4Mn0.OEaRqppby1y-qdWs09cb-PEgibNedizxjAbhHTsCCh4";
+const SUPABASE_URL = "YOUR_SUPABASE_PROJECT_URL";
+const SUPABASE_ANON_KEY = "YOUR_SUPABASE_ANON_KEY";
 
 const appEl = document.getElementById("app");
 
@@ -43,6 +43,9 @@ async function mount() {
         navigate("login");
       }
     });
+
+    if (navigator.onLine) syncNow();
+    startAutoSync();
   } else {
     // No backend wired up yet — skip the login gate so the app is still
     // usable locally while you're setting Supabase up.
