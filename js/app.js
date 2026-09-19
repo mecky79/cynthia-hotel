@@ -18,8 +18,8 @@ import { renderTopbar } from "./components/topbar.js";
 
 // === Connect this to your own Supabase project ===
 // Project Settings -> API in your Supabase dashboard gives you both values.
-const SUPABASE_URL = "YOUR_SUPABASE_PROJECT_URL";
-const SUPABASE_ANON_KEY = "YOUR_SUPABASE_ANON_KEY";
+const SUPABASE_URL = "https://cdfwbdneoqousipzcved.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNkZndiZG5lb3FvdXNpcHpjdmVkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk3OTQxODIsImV4cCI6MjEwNTM3MDE4Mn0.OEaRqppby1y-qdWs09cb-PEgibNedizxjAbhHTsCCh4";
 
 const appEl = document.getElementById("app");
 
