@@ -1,6 +1,6 @@
 import {
   getState, subscribe, navigate, setCustomersQuery,
-  calculateCustomerTotals, calculateDebtPaid, calculateDebtRemaining,
+  calculateCustomerTotals, calculateDebtPaid, calculateDebtRemaining, calculateDebtTotal,
   calculateDebtStatus, statusLabel, statusBadgeClass,
   getCustomerDebts, getCustomer, getCustomerLastTransaction
 } from "../state.js";
@@ -113,11 +113,12 @@ function openCustomerSheet(customerId) {
         ${debts.length ? debts.map(d => {
           const paid = calculateDebtPaid(d.id);
           const rem = calculateDebtRemaining(d.id);
+          const debtTotal = calculateDebtTotal(d.id);
           const st = calculateDebtStatus(d.id);
           return `
             <div class="list-item" data-debt="${d.id}">
               <div class="list-item-main">
-                <div class="list-item-title">${formatKsh(d.total)} <span class="badge ${statusBadgeClass(st)}" style="margin-left:6px;">${statusLabel(st)}</span></div>
+                <div class="list-item-title">${formatKsh(debtTotal)} <span class="badge ${statusBadgeClass(st)}" style="margin-left:6px;">${statusLabel(st)}</span></div>
                 <div class="list-item-sub">${formatDate(d.date)} · Paid ${formatKsh(paid)} · Remaining ${formatKsh(rem)}</div>
               </div>
             </div>

@@ -1,6 +1,6 @@
 import {
   getState, subscribe, setDebtsFilter, navigate,
-  calculateDebtPaid, calculateDebtRemaining, calculateDebtStatus,
+  calculateDebtPaid, calculateDebtRemaining, calculateDebtStatus, calculateDebtTotal,
   statusLabel, statusBadgeClass, getCustomer
 } from "../state.js";
 import { formatKsh, formatDate, matchesQuery, escapeHtml } from "../utils.js";
@@ -101,12 +101,13 @@ export function renderDebts() {
                 const c = getCustomer(d.customerId);
                 const paid = calculateDebtPaid(d.id);
                 const rem = calculateDebtRemaining(d.id);
+                const debtTotal = calculateDebtTotal(d.id);
                 const st = calculateDebtStatus(d.id);
                 return `
                   <tr data-id="${d.id}">
                     <td><strong>${escapeHtml(c ? c.name : "Unknown")}</strong></td>
                     <td class="text-muted">${escapeHtml(c ? c.phone : "")}</td>
-                    <td class="num">${formatKsh(d.total)}</td>
+                    <td class="num">${formatKsh(debtTotal)}</td>
                     <td class="num paid">${formatKsh(paid)}</td>
                     <td class="num remaining">${formatKsh(rem)}</td>
                     <td class="text-muted">${formatDate(d.date)}</td>
@@ -161,8 +162,8 @@ function applyFilter(debts, filter) {
   const sorters = {
     recent:  (a, b) => new Date(b.createdAt || b.date) - new Date(a.createdAt || a.date),
     oldest:  (a, b) => new Date(a.createdAt || a.date) - new Date(b.createdAt || b.date),
-    highest: (a, b) => b.total - a.total,
-    lowest:  (a, b) => a.total - b.total
+    highest: (a, b) => calculateDebtTotal(b.id) - calculateDebtTotal(a.id),
+    lowest:  (a, b) => calculateDebtTotal(a.id) - calculateDebtTotal(b.id)
   };
   list.sort(sorters[filter.sort] || sorters.recent);
   return list;
